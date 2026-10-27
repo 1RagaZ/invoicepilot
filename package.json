@@ -1,0 +1,1 @@
+{"description":"AI invoicing agent for freelancers, built for the PayPal AI Hackathon 2026","engines":{"node":">=18"},"main":"server.js","name":"invoicepilot","private":true,"scripts":{"start":"node server.js"},"version":"0.1.0"}
