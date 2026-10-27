@@ -12,10 +12,13 @@ Milestone 1 in progress. PayPal sandbox app created (BillPilot).
 
 ## Setup
 
+Stack: Node 18+ server, zero dependencies. No build step.
+
 1. Copy `.env.example` to `.env` and fill in your own PayPal sandbox
    credentials and AI API key. Never commit `.env`.
-2. Install dependencies and run the app (instructions to be completed once
-   the stack is locked).
+2. Run `node server.js` and open http://localhost:3000.
+3. The form sends a PayPal sandbox invoice (create + send) and can check
+   its status by invoice ID.
 
 ## License
 
