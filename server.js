@@ -79,6 +79,7 @@ async function loadInvoice(token, invoiceId) {
     clientName: invoice.primary_recipients && invoice.primary_recipients[0]
       && invoice.primary_recipients[0].billing_info
       ? invoice.primary_recipients[0].billing_info.name || null : null,
+    description: invoice.items && invoice.items[0] ? invoice.items[0].description || null : null,
   };
 }
 
@@ -153,6 +154,39 @@ const server = http.createServer(async (req, res) => {
       const html = fs.readFileSync(path.join(__dirname, 'public', 'index.html'));
       res.writeHead(200, { 'Content-Type': 'text/html', 'Content-Length': html.length });
       return res.end(html);
+    }
+
+    // Self-hosted fonts (public/fonts/*.woff2, written by the awwwards font helper).
+    const fontMatch = url.pathname.match(/^\/fonts\/([A-Za-z0-9._-]+\.woff2)$/);
+    if (req.method === 'GET' && fontMatch) {
+      const fontPath = path.join(__dirname, 'public', 'fonts', fontMatch[1]);
+      if (!fs.existsSync(fontPath)) return sendJson(res, 404, { error: 'Not found.' });
+      const font = fs.readFileSync(fontPath);
+      res.writeHead(200, { 'Content-Type': 'font/woff2', 'Content-Length': font.length, 'Cache-Control': 'public, max-age=31536000' });
+      return res.end(font);
+    }
+
+    // Favicon, OG image, robots, sitemap: small public files.
+    const publicFile = (name, type) => {
+      const f = path.join(__dirname, 'public', name);
+      if (!fs.existsSync(f)) return false;
+      const body = fs.readFileSync(f);
+      res.writeHead(200, { 'Content-Type': type, 'Content-Length': body.length, 'Cache-Control': 'public, max-age=3600' });
+      res.end(body);
+      return true;
+    };
+    if (req.method === 'GET' && url.pathname === '/favicon.svg') return publicFile('favicon.svg', 'image/svg+xml') || sendJson(res, 404, { error: 'Not found.' });
+    if (req.method === 'GET' && url.pathname === '/favicon.ico') return publicFile('favicon.svg', 'image/svg+xml') || sendJson(res, 404, { error: 'Not found.' });
+    if (req.method === 'GET' && url.pathname === '/og.png') return publicFile('og.png', 'image/png') || sendJson(res, 404, { error: 'Not found.' });
+    if (req.method === 'GET' && url.pathname === '/robots.txt') {
+      const body = 'User-agent: *\nAllow: /\n';
+      res.writeHead(200, { 'Content-Type': 'text/plain', 'Content-Length': body.length });
+      return res.end(body);
+    }
+    if (req.method === 'GET' && url.pathname === '/sitemap.xml') {
+      const body = '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n<url><loc>/</loc></url>\n</urlset>\n';
+      res.writeHead(200, { 'Content-Type': 'application/xml', 'Content-Length': body.length });
+      return res.end(body);
     }
 
     // Create and send an invoice. Optional dueDate (YYYY-MM-DD) sets the
@@ -280,7 +314,45 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, parsed);
     }
 
-    return sendJson(res, 404, { error: 'Not found.' });
+    // Unknown route. API calls get JSON; a browser gets the ledger's 404 page.
+    if (url.pathname.startsWith('/api/')) return sendJson(res, 404, { error: 'Not found.' });
+    const notFound = '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">'
+      + '<meta name="viewport" content="width=device-width, initial-scale=1">'
+      + '<title>Not in the ledger - InvoicePilot</title>'
+      + '<style>body{margin:0;background:#f7f5f0;color:#141414;font-family:system-ui,sans-serif}'
+      + '.w{max-width:1200px;margin:0 auto;padding:0 24px 72px}'
+      + 'header{display:grid;grid-template-columns:1fr auto;gap:4px 16px;padding:20px 0 16px;border-bottom:1px solid #141414}'
+      + '.brand{font-weight:800;font-size:22px;letter-spacing:-.03em}.brand em{font-style:normal;color:#b42318}'
+      + '.corner{font-size:13px;color:#5c5c55;text-align:right}.corner.l{text-align:left}'
+      + '.jump{grid-column:1/-1;display:flex;gap:20px;justify-content:flex-end;padding-top:10px;font-size:13px}'
+      + '.jump a{color:#5c5c55;text-decoration:none;padding:4px 2px}.jump a:hover{color:#141414;text-decoration:underline}'
+      + 'main{padding:72px 0 56px}'
+      + 'h1{font-size:44px;letter-spacing:-.03em;line-height:1;margin:0 0 16px}'
+      + 'p{color:#5c5c55;margin:0 0 24px}'
+      + '.ledger{border-top:1px solid #141414;margin:0 0 32px}'
+      + '.lrow{display:grid;grid-template-columns:210px 1fr 120px;gap:16px;align-items:baseline;padding:16px 0;border-bottom:1px solid #ddd8cc}'
+      + '.lrow .id{font-family:ui-monospace,monospace;font-size:14px;color:#5c5c55}'
+      + '.lrow .desc{font-weight:600;color:#5c5c55}'
+      + '.stamp{justify-self:center;align-self:center;transform:rotate(-8deg);border:2px solid #b42318;color:#b42318;border-radius:2px;font-weight:800;font-size:13px;letter-spacing:.08em;text-transform:uppercase;padding:3px 8px;white-space:nowrap}'
+      + 'a.btn{display:inline-block;background:#141414;color:#fff;border:1px solid #141414;border-radius:2px;padding:11px 18px;font-size:15px;font-weight:700;text-decoration:none;min-height:44px;line-height:22px}'
+      + 'a.btn:hover{background:#fbfaf7;color:#141414}'
+      + 'footer{padding:64px 0 8px}.statement{font-size:clamp(2rem,5vw,3.5rem);font-weight:800;letter-spacing:-.03em;line-height:1.02;margin:0 0 32px;max-width:16ch}'
+      + '.cols{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;border-top:1px solid #141414;padding-top:16px}.fine{font-size:13px;color:#5c5c55}.fine a{color:#141414;display:inline-block;padding:4px 0}</style></head><body>'
+      + '<div class="w"><header><div class="brand">Invoice<em>Pilot</em></div>'
+      + '<div class="corner">PayPal AI Hackathon 2026</div>'
+      + '<div class="corner l">Sandbox demo</div>'
+      + '<div class="corner">No real money moves</div>'
+      + '<nav class="jump" aria-label="Sections"><a href="/#ledger">Ledger</a><a href="/#bench">Workbench</a></nav></header>'
+      + '<main><h1>This entry is not in the ledger.</h1>'
+      + '<p>The page you asked for does not exist. The ledger only holds invoices.</p>'
+      + '<div class="ledger"><div class="lrow"><span class="id">—</span><span class="desc">No such entry</span><span class="stamp">Not found</span></div></div>'
+      + '<a class="btn" href="/">Back to the ledger</a></main>'
+      + '<footer><p class="statement">Nothing sends without your say-so.</p>'
+      + '<div class="cols"><span class="fine">InvoicePilot · PayPal AI Hackathon 2026 · Sandbox demo</span>'
+      + '<span class="fine"><a href="https://github.com/1RagaZ/invoicepilot">Source on GitHub</a></span></div></footer>'
+      + '</div></body></html>';
+    res.writeHead(404, { 'Content-Type': 'text/html', 'Content-Length': Buffer.byteLength(notFound) });
+    return res.end(notFound);
   } catch (err) {
     return sendJson(res, err.status || 500, { error: err.message, details: err.details || undefined });
   }
