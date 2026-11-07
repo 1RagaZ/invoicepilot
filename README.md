@@ -32,8 +32,8 @@ drafting, approval-gated sending with a send log. Test suites: overdue 8/8,
 reminder drafting 4/4, parse 9/9 (`npm test`).
 
 Known limits: the AI draft leg depends on the model being up (Gemini 3.8
-Flash was returning 503 on 2026-11-07; the template fallback keeps the loop
-working). Drafts persist on disk across restarts. There is no auth on the
+Flash was returning 503 on 2026-11-07 and was still returning 503 on
+2026-11-08; the template fallback keeps the loop working). Drafts persist on disk across restarts. There is no auth on the
 API routes — this is a sandbox demo, not a production service.
 
 ## Setup
