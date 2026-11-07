@@ -477,12 +477,15 @@ $('parseBtn').addEventListener('click', async () => {
   out.innerHTML = '<p class="muted">Parsing…</p>';
   const result = await postJson('/api/parse', { text });
   if (result.error) { showError(out, result); return; }
+  const badge = result.source === 'ai'
+    ? '<span class="badge ai">Parsed by AI</span>'
+    : '<span class="badge template">Template - model was down</span>';
   out.innerHTML = '<dl class="kv">'
     + kvRow('Client', result.clientEmail || 'Not set')
     + kvRow('Description', result.description || 'Not set')
     + kvRow('Amount', (result.amount != null ? result.amount : 'Not set') + ' ' + (result.currency || ''), true)
-    + kvRow('Due', result.dueDate || 'Not set', true)
-    + '</dl>';
+    + kvRow('Due', result.dueDays != null ? result.dueDays + ' days' : 'Not set', true)
+    + '</dl>' + badge;
   if (result.clientEmail) $('clientEmail').value = result.clientEmail;
   if (result.description) $('description').value = result.description;
   if (result.amount != null) $('amount').value = result.amount;

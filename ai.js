@@ -140,4 +140,99 @@ async function parseInvoice(text, fetchImpl) {
   return validate(parsed);
 }
 
-module.exports = { parseInvoice, validate, draftReminder, callModel };
+// Template parser: a deterministic fallback when the model is down. It only
+// extracts what the text states plainly; anything it cannot find is null,
+// and a missing amount is an error, never a guess. The caller labels the
+// result 'template' so it is never presented as AI-written.
+const WORD_NUMBERS = {
+  one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8,
+  nine: 9, ten: 10, eleven: 11, twelve: 12,
+};
+
+function parseTemplate(text) {
+  if (!text || !text.trim()) throw new Error('No job description given.');
+  const t = text.trim();
+  const lower = t.toLowerCase();
+
+  // Client email, when stated.
+  const emailMatch = t.match(/[\w.+-]+@[\w-]+\.[\w.]+/);
+  const clientEmail = emailMatch ? emailMatch[0] : null;
+
+  // Amount: a $ amount first, else a number with a currency word.
+  // "N each" with a quantity multiplies the rate (e.g. "Three blog posts,
+  // $75 each" is 3 x 75).
+  let amount = null;
+  let currency = 'USD';
+  const dollar = t.match(/\$\s*(\d+(?:\.\d{1,2})?)/);
+  const worded = t.match(/(\d+(?:\.\d{1,2})?)\s*(dollars?|usd|euros?|eur|pounds?|gbp|kes|ksh)/i);
+  let rate = null;
+  if (dollar) {
+    rate = Number(dollar[1]);
+    currency = 'USD';
+  } else if (worded) {
+    rate = Number(worded[1]);
+    const word = worded[2].toLowerCase();
+    if (word.startsWith('eur')) currency = 'EUR';
+    else if (word.startsWith('pound') || word === 'gbp') currency = 'GBP';
+    else if (word === 'kes' || word === 'ksh') currency = 'KES';
+    else currency = 'USD';
+  }
+  if (rate != null) {
+    amount = rate;
+    if (/\beach\b/i.test(t)) {
+      const qtyWord = lower.match(/\b(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\b/);
+      const qtyDigit = t.match(/(\d+)\s+\w+\s+for\b/);
+      const qty = qtyWord ? WORD_NUMBERS[qtyWord[1]] : (qtyDigit ? Number(qtyDigit[1]) : null);
+      if (qty) amount = rate * qty;
+    }
+    if (t.includes('€')) currency = 'EUR';
+    if (t.includes('£')) currency = 'GBP';
+  }
+  if (amount == null || !(amount > 0)) {
+    throw new Error('Template could not find an amount.');
+  }
+
+  // Due days: "due in N days", "net N", "pay within N days", "due in N weeks".
+  let dueDays = null;
+  const dueIn = lower.match(/due in (\d+)\s*(day|week)/);
+  const net = lower.match(/net (\d+)/);
+  const within = lower.match(/pay within (\d+)\s*day/);
+  if (dueIn) dueDays = Number(dueIn[1]) * (dueIn[2] === 'week' ? 7 : 1);
+  else if (net) dueDays = Number(net[1]);
+  else if (within) dueDays = Number(within[1]);
+
+  // Client: the words after "for", up to a comma or a due/pay phrase.
+  // An email there is a clientEmail, not a clientName.
+  let clientName = null;
+  const forMatch = t.match(/ for (.+)$/i);
+  if (forMatch) {
+    let segment = forMatch[1].split(',')[0].trim();
+    segment = segment.split(/\b(?:due|pay|net)\b/i)[0].trim();
+    if (segment && !segment.includes('@')) clientName = segment;
+  }
+
+  // Description: the work, which is the text before "for". Without "for",
+  // the text with the amount and due phrases stripped.
+  let description = '';
+  const forIdx = lower.indexOf(' for ');
+  if (forIdx >= 0) description = t.slice(0, forIdx).trim();
+  else {
+    description = t
+      .replace(/\$\s*\d+(?:\.\d{1,2})?/g, '')
+      .replace(/\b\d+(?:\.\d{1,2})?\s*(dollars?|usd|euros?|eur|pounds?|gbp|kes|ksh)\b/gi, '')
+      .replace(/\b(due in \d+ \w+|net \d+|pay within \d+ \w+|due end of month)\b/gi, '')
+      .replace(/,+/g, ',').trim();
+  }
+  if (!description) description = t;
+
+  return validate({
+    clientName,
+    clientEmail,
+    description,
+    amount,
+    currency,
+    dueDays,
+  });
+}
+
+module.exports = { parseInvoice, parseTemplate, validate, draftReminder, callModel };

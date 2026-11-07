@@ -19,13 +19,18 @@ function loadEnv(file) {
 }
 
 const env = loadEnv(path.join(__dirname, '.env'));
-const API_BASE = (env.PAYPAL_API_BASE || 'https://api-m.sandbox.paypal.com').replace(/\/$/, '');
+// PayPal creds come from the environment first (Render dashboard), with
+// .env as the local fallback. Render has no .env file, so process.env is
+// the only source there.
+const PAYPAL_CLIENT_ID = process.env.PAYPAL_CLIENT_ID || env.PAYPAL_CLIENT_ID;
+const PAYPAL_CLIENT_SECRET = process.env.PAYPAL_CLIENT_SECRET || env.PAYPAL_CLIENT_SECRET;
+const API_BASE = (process.env.PAYPAL_API_BASE || env.PAYPAL_API_BASE || 'https://api-m.sandbox.paypal.com').replace(/\/$/, '');
 
 // Bridge .env values into process.env so ai.js can read them.
 for (const k of ['AI_API_KEY', 'AI_API_BASE', 'AI_MODEL']) {
   if (env[k] && !process.env[k]) process.env[k] = env[k];
 }
-const { parseInvoice, draftReminder } = require('./ai.js');
+const { parseInvoice, parseTemplate, draftReminder } = require('./ai.js');
 const { checkOverdue } = require('./overdue');
 const crypto = require('node:crypto');
 
@@ -84,7 +89,7 @@ async function loadInvoice(token, invoiceId) {
 }
 
 function needCreds() {
-  if (!env.PAYPAL_CLIENT_ID || !env.PAYPAL_CLIENT_SECRET) {
+  if (!PAYPAL_CLIENT_ID || !PAYPAL_CLIENT_SECRET) {
     const err = new Error('PayPal sandbox credentials missing. Copy .env.example to .env and fill in your own values.');
     err.status = 500;
     throw err;
@@ -93,7 +98,7 @@ function needCreds() {
 
 async function getToken() {
   needCreds();
-  const creds = Buffer.from(`${env.PAYPAL_CLIENT_ID}:${env.PAYPAL_CLIENT_SECRET}`).toString('base64');
+  const creds = Buffer.from(`${PAYPAL_CLIENT_ID}:${PAYPAL_CLIENT_SECRET}`).toString('base64');
   const res = await fetch(`${API_BASE}/v1/oauth2/token`, {
     method: 'POST',
     headers: { Authorization: `Basic ${creds}`, 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -307,11 +312,27 @@ const server = http.createServer(async (req, res) => {
     }
 
     // Parse a plain-language job description into invoice fields.
+    // AI first; when the model is down, a deterministic template parser
+    // stands in so the loop still works. The response says which one it
+    // is (source: 'ai' | 'template') and a template parse is never
+    // presented as AI-written.
     if (req.method === 'POST' && url.pathname === '/api/parse') {
       const { text } = await readBody(req);
       if (!text) return sendJson(res, 400, { error: 'text is required.' });
-      const parsed = await parseInvoice(text);
-      return sendJson(res, 200, parsed);
+      let parsed;
+      let source = 'ai';
+      try {
+        parsed = await parseInvoice(text);
+      } catch (err) {
+        console.error(`AI parse failed: ${err.message}`);
+        source = 'template';
+        try {
+          parsed = parseTemplate(text);
+        } catch (templateErr) {
+          return sendJson(res, 500, { error: `AI parse failed (${err.message}) and the template could not parse it (${templateErr.message}).` });
+        }
+      }
+      return sendJson(res, 200, { ...parsed, source });
     }
 
     // Unknown route. API calls get JSON; a browser gets the ledger's 404 page.
