@@ -2,3 +2,5 @@
 node_modules/
 dist/
 *.log
+reminders_log.json
+reminders_drafts.json
