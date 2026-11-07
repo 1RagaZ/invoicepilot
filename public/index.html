@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>InvoicePilot - Invoices that chase themselves</title>
 <meta name="description" content="InvoicePilot turns plain language into PayPal invoices, flags the overdue ones, and drafts a reminder that only sends when you approve it.">
-<!-- Canonical goes in when the demo has a real URL (Render deploy). -->
+<link rel="canonical" href="https://invoicepilot-9fnp.onrender.com/">
 <meta property="og:title" content="InvoicePilot - Invoices that chase themselves">
 <meta property="og:description" content="An invoicing agent that parses a job in plain language, sends the invoice, flags overdue ones, and drafts a reminder that only sends on approval.">
 <meta property="og:image" content="/og.png">
@@ -68,7 +68,7 @@
   .corner.l { text-align: left; }
   .jump { grid-column: 1 / -1; display: flex; gap: 20px; justify-content: flex-end; padding-top: 10px; font-size: 13px; }
   .jump a { color: var(--muted); text-decoration: none; padding: 4px 2px; }
-  .jump a:hover { color: var(--ink); text-decoration: underline; }
+  .jump a:hover { color: var(--ink); text-decoration: underline; background: var(--line); }
 
   /* Poster hero */
   .hero { padding: 72px 0 56px; border-bottom: 1px solid var(--ink); }
@@ -201,6 +201,10 @@
   .side p { margin: 0 0 12px; font-size: 13px; color: var(--muted); }
   .side .big { font-size: 34px; font-weight: 800; letter-spacing: -0.03em; line-height: 1; margin: 12px 0 4px; }
   .side .big.mono { font-family: 'IBM Plex Mono', monospace; font-weight: 600; font-size: 22px; letter-spacing: 0; }
+  /* The invoice ID is one token: it must fit on one line, never split
+     mid-token. At 390px the 22px mono is too wide, so it steps down. */
+  @media (max-width: 760px) { .side .big.mono { font-size: 17px; white-space: nowrap; } }
+  .nowrap { white-space: nowrap; }
 
   /* Footer (statement) */
   footer { padding: 64px 0 8px; }
@@ -210,6 +214,7 @@
   }
   footer .cols { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; border-top: 1px solid var(--ink); padding-top: 16px; }
   footer a { color: var(--ink); display: inline-block; padding: 5px 0; }
+  footer a:hover { color: var(--accent); background: var(--line); }
   footer .fine { font-size: 13px; color: var(--muted); }
 
   .reveal { opacity: 0; transform: translateY(8px); transition: opacity 240ms var(--ease), transform 240ms var(--ease); }
@@ -335,7 +340,7 @@
   </main>
 
   <footer>
-    <p class="statement">Nothing sends without your say-so.</p>
+    <p class="statement">Nothing sends without your <span class="nowrap">say-so.</span></p>
     <div class="cols">
       <span class="fine">InvoicePilot · PayPal AI Hackathon 2026 · Sandbox demo</span>
       <span class="fine"><a href="https://github.com/1RagaZ/invoicepilot">Source on GitHub</a></span>
@@ -392,10 +397,19 @@ function upsertLedger(entry, append) {
   saveLedger(rows);
   renderLedger();
 }
+/* The two seed fetches are still in flight when the page first renders.
+   Until they settle, the ledger is loading, not empty: the empty message
+   must only show after a load completes with zero rows. */
+let seedsPending = 2;
+function seedDone() { if (seedsPending > 0) { seedsPending--; renderLedger(); } }
 function renderLedger() {
   const rows = loadLedger();
   const box = $('ledgerRows');
   if (!rows.length) {
+    if (seedsPending > 0) {
+      box.innerHTML = '<div class="lrow empty">Loading the ledger…</div>';
+      return;
+    }
     box.innerHTML = '<div class="lrow empty">No invoices yet in this session. Create one below and it lands here.</div>';
     return;
   }
@@ -422,6 +436,14 @@ function setSide(entry) {
 }
 renderLedger();
 
+/* Seed rows need distinct, truthful labels: PayPal returns no description
+   for these invoices, so the label is the live amount. Never invented. */
+function seedLabel(result) {
+  if (result.description) return result.description;
+  const amount = money(result.amount);
+  return amount === 'Not set' ? 'Sandbox invoice' : 'Sandbox invoice · ' + amount;
+}
+
 /* The demo's own overdue invoice, live from the PayPal sandbox, so the stamp
    is on screen from the first load. Real data, fetched live; if it is gone
    or the fetch fails, the ledger simply stays as it was. */
@@ -429,11 +451,12 @@ fetch('/api/invoices/INV2-8ACF-6WEJ-L9R3-ULHK')
   .then((r) => r.json())
   .then((result) => {
     if (result.error || !result.id) return;
-    const entry = { id: result.id, description: result.description || 'Sandbox invoice', amount: money(result.amount), dueDate: result.dueDate, status: result.status, overdue: result.overdue };
+    const entry = { id: result.id, description: seedLabel(result), amount: money(result.amount), dueDate: result.dueDate, status: result.status, overdue: result.overdue };
     upsertLedger(entry);
     setSide(entry);
   })
-  .catch(() => {});
+  .catch(() => {})
+  .finally(seedDone);
 
 /* A second real sandbox invoice, so the ledger holds more than one row.
    Appended below the first; it never takes over the side panel. */
@@ -441,10 +464,11 @@ fetch('/api/invoices/INV2-9D7S-A72A-5QEG-JDJA')
   .then((r) => r.json())
   .then((result) => {
     if (result.error || !result.id) return;
-    const entry = { id: result.id, description: result.description || 'Sandbox invoice', amount: money(result.amount), dueDate: result.dueDate, status: result.status, overdue: result.overdue };
+    const entry = { id: result.id, description: seedLabel(result), amount: money(result.amount), dueDate: result.dueDate, status: result.status, overdue: result.overdue };
     upsertLedger(entry, true);
   })
-  .catch(() => {});
+  .catch(() => {})
+  .finally(seedDone);
 
 $('parseBtn').addEventListener('click', async () => {
   const out = $('parseResult');
