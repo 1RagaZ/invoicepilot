@@ -481,7 +481,7 @@ $('parseBtn').addEventListener('click', async () => {
     ? '<span class="badge ai">Parsed by AI</span>'
     : '<span class="badge template">Template - model was down</span>';
   out.innerHTML = '<dl class="kv">'
-    + kvRow('Client', result.clientEmail || 'Not set')
+    + kvRow('Client', result.clientName || result.clientEmail || 'Not set')
     + kvRow('Description', result.description || 'Not set')
     + kvRow('Amount', (result.amount != null ? result.amount : 'Not set') + ' ' + (result.currency || ''), true)
     + kvRow('Due', result.dueDays != null ? result.dueDays + ' days' : 'Not set', true)
